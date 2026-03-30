@@ -146,10 +146,13 @@ async def manual_review(req: ManualReviewRequest, request: Request):
 
 
 async def run_review(owner, repo, pr_number, commit_sha):
-  """core review logic: fetch diff, parse chunks, score risk, generate comments.
+  """core review logic: fetch diff, parse chunks, review with Claude, post comments.
 
   this is called by both the webhook handler and the manual review endpoint.
   """
+  from collections import defaultdict
+  from app.reviewer import review_chunks, format_comment
+
   start = time.time()
 
   # step 1: fetch the diff
@@ -169,46 +172,66 @@ async def run_review(owner, repo, pr_number, commit_sha):
       'chunks': 0,
     }
 
-  # step 3: score each chunk with the risk classifier
-  # (placeholder for now, will be implemented in phase 2)
-  scored_chunks = []
+  # step 3: group chunks by file for batched review
+  chunks_by_file = defaultdict(list)
   for chunk in chunks:
-    scored_chunks.append({
-      'chunk': chunk,
-      'risk_score': 0.5,  # placeholder: all medium risk
-      'risk_label': 'medium',
+    chunks_by_file[chunk.file_path].append(chunk)
+
+  # step 4: send to Claude for review
+  findings = await review_chunks(chunks_by_file)
+
+  # step 5: format findings into GitHub PR comments
+  review_comments = []
+  for finding in findings:
+    review_comments.append({
+      'path': finding['file_path'],
+      'line': finding['line'],
+      'body': format_comment(finding),
     })
 
-  # step 4: send high-risk chunks to LLM for detailed review
-  # (placeholder for now, will be implemented in phase 3)
-  review_comments = []
-  for sc in scored_chunks:
-    if sc['risk_score'] >= 0.6:
-      review_comments.append({
-        'path': sc['chunk'].file_path,
-        'line': sc['chunk'].end_line,
-        'body': (
-          f'**CodeSentry** (risk: {sc["risk_label"]})\n\n'
-          f'This code chunk has {sc["chunk"].num_added} new lines '
-          f'starting at line {sc["chunk"].start_line}. '
-          f'Detailed LLM review coming in a future update.'
-        ),
-      })
-
-  # step 5: post the review on the PR
+  # step 6: post the review on the PR
+  files_checked = len(chunks_by_file)
   if review_comments:
-    summary = (
-      f'## CodeSentry Review\n\n'
-      f'Analyzed **{len(chunks)}** code chunks across '
-      f'**{len(set(c.file_path for c in chunks))}** files.\n\n'
-      f'Found **{len(review_comments)}** chunks that need attention.'
-    )
+    # build summary with finding counts
+    bug_count = sum(1 for f in findings if f['type'] == 'bug')
+    sec_count = sum(1 for f in findings if f['type'] == 'security')
+    perf_count = sum(1 for f in findings if f['type'] == 'performance')
+    style_count = sum(1 for f in findings if f['type'] == 'style')
+    high_count = sum(1 for f in findings if f['severity'] == 'high')
+
+    summary_parts = [
+      f'## CodeSentry Review\n',
+      f'Analyzed **{len(chunks)}** code chunks across **{files_checked}** files.\n',
+    ]
+
+    if high_count > 0:
+      summary_parts.append(f'\n**{high_count} high-severity** issues found.\n')
+
+    counts = []
+    if bug_count: counts.append(f'{bug_count} bugs')
+    if sec_count: counts.append(f'{sec_count} security')
+    if perf_count: counts.append(f'{perf_count} performance')
+    if style_count: counts.append(f'{style_count} code quality')
+    if counts:
+      summary_parts.append(f'\nFindings: {", ".join(counts)}')
+
+    summary = '\n'.join(summary_parts)
 
     posted = await post_review_summary(
       owner, repo, pr_number, commit_sha,
       review_comments, summary
     )
   else:
+    # no issues found, post a clean summary
+    summary = (
+      f'## CodeSentry Review\n\n'
+      f'Analyzed **{len(chunks)}** code chunks across **{files_checked}** files.\n\n'
+      f'No issues found. Code looks clean.'
+    )
+    await post_review_summary(
+      owner, repo, pr_number, commit_sha,
+      [], summary
+    )
     posted = True
 
   elapsed = time.time() - start
@@ -217,8 +240,67 @@ async def run_review(owner, repo, pr_number, commit_sha):
     'status': 'ok',
     'pr': f'{owner}/{repo}#{pr_number}',
     'chunks_analyzed': len(chunks),
-    'files_checked': len(set(c.file_path for c in chunks)),
+    'files_checked': files_checked,
+    'findings': len(findings),
     'comments_posted': len(review_comments),
     'review_posted': posted,
+    'time_seconds': round(elapsed, 2),
+    'breakdown': {
+      'bugs': sum(1 for f in findings if f['type'] == 'bug'),
+      'security': sum(1 for f in findings if f['type'] == 'security'),
+      'performance': sum(1 for f in findings if f['type'] == 'performance'),
+      'style': sum(1 for f in findings if f['type'] == 'style'),
+    }
+  }
+
+
+# --- snippet review (for testing and frontend) ---
+
+class SnippetReviewRequest(BaseModel):
+  code: str = Field(..., max_length=10000,
+                    description='code to review')
+  language: str = Field(default='python',
+                        description='programming language')
+  filename: str = Field(default='snippet.py',
+                        description='filename for context')
+
+
+@app.post('/api/review-snippet')
+async def review_snippet(req: SnippetReviewRequest, request: Request):
+  """review a code snippet directly without a GitHub PR.
+  useful for testing the review engine or building a frontend.
+  """
+  check_rate_limit(request.client.host)
+
+  from app.diff_parser import DiffChunk
+  from app.reviewer import review_chunks, format_comment
+
+  # wrap the snippet as a fake diff chunk
+  lines = req.code.split('\n')
+  chunk = DiffChunk(
+    file_path=req.filename,
+    start_line=1,
+    end_line=len(lines),
+    added_lines=lines,
+    context_lines=[],
+  )
+
+  start = time.time()
+  findings = await review_chunks({req.filename: [chunk]})
+  elapsed = time.time() - start
+
+  return {
+    'status': 'ok',
+    'findings': [
+      {
+        'type': f['type'],
+        'severity': f['severity'],
+        'message': f['message'],
+        'line': f['line'],
+        'line_content': f.get('line_content', ''),
+      }
+      for f in findings
+    ],
+    'total_findings': len(findings),
     'time_seconds': round(elapsed, 2),
   }
