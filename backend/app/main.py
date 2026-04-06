@@ -13,6 +13,8 @@ from app.github_client import (
   verify_webhook_signature, fetch_pr_diff, fetch_pr_files,
   post_review_summary,
 )
+from app import risk_classifier
+from app import risk_classifier
 
 # --- rate limiter ---
 RATE_LIMIT_WINDOW = 60
@@ -56,11 +58,26 @@ app.add_middleware(
 )
 
 
+@app.on_event('startup')
+def startup():
+  risk_classifier.load_model()
+
+
+@app.on_event('startup')
+def startup():
+  risk_classifier.load_classifier()
+
+
 # --- endpoints ---
 
 @app.get('/')
 def root():
-  return {'status': 'ok', 'service': 'codesentry-api', 'version': '0.1.0'}
+  return {'status': 'ok', 'service': 'codesentry-api', 'version': '0.2.0'}
+
+
+@app.get('/api/classifier-status')
+def classifier_status():
+  return {'loaded': risk_classifier.is_loaded()}
 
 
 @app.get('/health')
@@ -172,13 +189,52 @@ async def run_review(owner, repo, pr_number, commit_sha):
       'chunks': 0,
     }
 
-  # step 3: group chunks by file for batched review
+  # step 3: score chunks with the risk classifier for triage
+  scored = risk_classifier.score_chunks(chunks)
+
+  # split into high-risk (send to LLM) and low-risk (skip)
+  high_risk_chunks = [(c, s, l) for c, s, l in scored if s >= risk_classifier.THRESHOLD]
+  low_risk_chunks = [(c, s, l) for c, s, l in scored if s < risk_classifier.THRESHOLD]
+
+  # step 4: group high-risk chunks by file for batched LLM review
   chunks_by_file = defaultdict(list)
-  for chunk in chunks:
+  for chunk, score, label in high_risk_chunks:
     chunks_by_file[chunk.file_path].append(chunk)
 
-  # step 4: send to Claude for review
-  findings = await review_chunks(chunks_by_file)
+  # step 4: score each chunk with the risk classifier
+  scored_chunks = []
+  high_risk_by_file = defaultdict(list)
+
+  for chunk in chunks:
+    score_result = risk_classifier.score_chunk(chunk)
+    scored_chunks.append({
+      'chunk': chunk,
+      **score_result,
+    })
+
+    # only send high-risk chunks to the LLM
+    if score_result['risk_score'] >= risk_classifier.RISK_THRESHOLD:
+      high_risk_by_file[chunk.file_path].append(chunk)
+
+  # step 5: send high-risk chunks to Claude for review
+  if high_risk_by_file:
+    findings = await review_chunks(high_risk_by_file)
+  else:
+    findings = []
+
+  # add risk factor annotations for chunks that weren't sent to LLM
+  # but still have notable risk signals
+  for sc in scored_chunks:
+    if sc['risk_score'] < risk_classifier.RISK_THRESHOLD and sc['risk_factors']:
+      findings.append({
+        'file_path': sc['chunk'].file_path,
+        'line': sc['chunk'].end_line,
+        'type': 'style',
+        'severity': 'low',
+        'message': f'Risk signals detected: {", ".join(sc["risk_factors"])}. '
+                   f'Risk score: {sc["risk_score"]:.2f} (below review threshold).',
+        'line_content': '',
+      })
 
   # step 5: format findings into GitHub PR comments
   review_comments = []
@@ -201,8 +257,14 @@ async def run_review(owner, repo, pr_number, commit_sha):
 
     summary_parts = [
       f'## CodeSentry Review\n',
-      f'Analyzed **{len(chunks)}** code chunks across **{files_checked}** files.\n',
+      f'Scanned **{len(chunks)}** code chunks across **{files_checked}** files.',
     ]
+
+    if risk_classifier.is_loaded():
+      summary_parts.append(
+        f'Risk classifier triaged **{len(high_risk_chunks)}** high-risk chunks '
+        f'for deep review ({len(low_risk_chunks)} low-risk skipped).\n'
+      )
 
     if high_count > 0:
       summary_parts.append(f'\n**{high_count} high-severity** issues found.\n')
@@ -245,6 +307,12 @@ async def run_review(owner, repo, pr_number, commit_sha):
     'comments_posted': len(review_comments),
     'review_posted': posted,
     'time_seconds': round(elapsed, 2),
+    'triage': {
+      'total_chunks': len(chunks),
+      'high_risk': len(high_risk_chunks),
+      'low_risk_skipped': len(low_risk_chunks),
+      'classifier_loaded': risk_classifier.is_loaded(),
+    },
     'breakdown': {
       'bugs': sum(1 for f in findings if f['type'] == 'bug'),
       'security': sum(1 for f in findings if f['type'] == 'security'),
@@ -303,4 +371,40 @@ async def review_snippet(req: SnippetReviewRequest, request: Request):
     ],
     'total_findings': len(findings),
     'time_seconds': round(elapsed, 2),
+  }
+
+
+# --- risk scoring endpoint ---
+
+class RiskScoreRequest(BaseModel):
+  code: str = Field(..., max_length=10000, description='code to score')
+  filename: str = Field(default='snippet.py', description='filename for context')
+
+
+@app.post('/api/risk-score')
+async def risk_score(req: RiskScoreRequest, request: Request):
+  """score a code snippet for bug risk without triggering a full LLM review.
+  returns the risk score, label, and top risk factors.
+  """
+  check_rate_limit(request.client.host)
+
+  from app.diff_parser import DiffChunk
+
+  lines = req.code.split('\n')
+  chunk = DiffChunk(
+    file_path=req.filename,
+    start_line=1,
+    end_line=len(lines),
+    added_lines=lines,
+  )
+
+  result = risk_classifier.score_chunk(chunk)
+
+  return {
+    'risk_score': result['risk_score'],
+    'risk_label': result['risk_label'],
+    'risk_factors': result['risk_factors'],
+    'would_trigger_llm': result['risk_score'] >= risk_classifier.RISK_THRESHOLD,
+    'threshold': risk_classifier.RISK_THRESHOLD,
+    'features': result['features'],
   }
