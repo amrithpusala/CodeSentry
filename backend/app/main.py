@@ -65,7 +65,7 @@ def startup():
 
 @app.on_event('startup')
 def startup():
-  risk_classifier.load_classifier()
+  risk_classifier.load_model()
 
 
 # --- endpoints ---
