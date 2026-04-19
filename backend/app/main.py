@@ -14,7 +14,6 @@ from app.github_client import (
   post_review_summary,
 )
 from app import risk_classifier
-from app import risk_classifier
 
 # --- rate limiter ---
 RATE_LIMIT_WINDOW = 60
@@ -56,11 +55,6 @@ app.add_middleware(
   allow_methods=['GET', 'POST'],
   allow_headers=['Content-Type'],
 )
-
-
-@app.on_event('startup')
-def startup():
-  risk_classifier.load_model()
 
 
 @app.on_event('startup')
@@ -201,40 +195,11 @@ async def run_review(owner, repo, pr_number, commit_sha):
   for chunk, score, label in high_risk_chunks:
     chunks_by_file[chunk.file_path].append(chunk)
 
-  # step 4: score each chunk with the risk classifier
-  scored_chunks = []
-  high_risk_by_file = defaultdict(list)
-
-  for chunk in chunks:
-    score_result = risk_classifier.score_chunks([chunk])
-    scored_chunks.append({
-      'chunk': chunk,
-      **score_result,
-    })
-
-    # only send high-risk chunks to the LLM
-    if score_result['risk_score'] >= risk_classifier.RISK_THRESHOLD:
-      high_risk_by_file[chunk.file_path].append(chunk)
-
   # step 5: send high-risk chunks to Claude for review
-  if high_risk_by_file:
-    findings = await review_chunks(high_risk_by_file)
+  if chunks_by_file:
+    findings = await review_chunks(chunks_by_file)
   else:
     findings = []
-
-  # add risk factor annotations for chunks that weren't sent to LLM
-  # but still have notable risk signals
-  for sc in scored_chunks:
-    if sc['risk_score'] < risk_classifier.RISK_THRESHOLD and sc['risk_factors']:
-      findings.append({
-        'file_path': sc['chunk'].file_path,
-        'line': sc['chunk'].end_line,
-        'type': 'style',
-        'severity': 'low',
-        'message': f'Risk signals detected: {", ".join(sc["risk_factors"])}. '
-                   f'Risk score: {sc["risk_score"]:.2f} (below review threshold).',
-        'line_content': '',
-      })
 
   # step 5: format findings into GitHub PR comments
   review_comments = []
