@@ -206,7 +206,7 @@ async def run_review(owner, repo, pr_number, commit_sha):
   high_risk_by_file = defaultdict(list)
 
   for chunk in chunks:
-    score_result = risk_classifier.score_chunk(chunk)
+    score_result = risk_classifier.score_chunks([chunk])
     scored_chunks.append({
       'chunk': chunk,
       **score_result,
@@ -398,7 +398,7 @@ async def risk_score(req: RiskScoreRequest, request: Request):
     added_lines=lines,
   )
 
-  result = risk_classifier.score_chunk(chunk)
+  result = risk_classifier.score_chunks([chunk])
 
   return {
     'risk_score': result['risk_score'],
