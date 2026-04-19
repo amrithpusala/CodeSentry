@@ -1,1 +1,3 @@
-query = f"SELECT * FROM users WHERE id = {id}"
+import os
+os.system("rm -rf " + user_input)
+password = "admin123"
