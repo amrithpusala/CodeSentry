@@ -14,7 +14,6 @@ from app.github_client import (
   post_review_summary,
 )
 from app import risk_classifier
-from app import risk_classifier
 
 # --- rate limiter ---
 RATE_LIMIT_WINDOW = 60
@@ -63,21 +62,11 @@ def startup():
   risk_classifier.load_model()
 
 
-@app.on_event('startup')
-def startup():
-  risk_classifier.load_model()
-
-
 # --- endpoints ---
 
 @app.get('/')
 def root():
-  return {'status': 'ok', 'service': 'codesentry-api', 'version': '0.2.0'}
-
-
-@app.get('/api/classifier-status')
-def classifier_status():
-  return {'loaded': risk_classifier.is_loaded()}
+  return {'status': 'ok', 'service': 'codesentry-api', 'version': '0.1.0'}
 
 
 @app.get('/health')
@@ -87,11 +76,7 @@ def health():
 
 @app.post('/api/webhook/github')
 async def github_webhook(request: Request):
-  """handle incoming github webhook events.
-  triggered when a PR is opened, updated, or synchronized.
-  verifies the webhook signature before processing.
-  """
-  # verify signature
+  """handle incoming github webhook events."""
   body = await request.body()
   signature = request.headers.get('X-Hub-Signature-256', '')
 
@@ -100,14 +85,12 @@ async def github_webhook(request: Request):
 
   event_type = request.headers.get('X-GitHub-Event', '')
 
-  # only process pull request events
   if event_type != 'pull_request':
     return {'status': 'ignored', 'event': event_type}
 
   payload = await request.json()
   action = payload.get('action', '')
 
-  # only review on opened, synchronize (new commits pushed), or reopened
   if action not in ('opened', 'synchronize', 'reopened'):
     return {'status': 'ignored', 'action': action}
 
@@ -122,25 +105,21 @@ async def github_webhook(request: Request):
   if not all([owner, repo_name, pr_number, commit_sha]):
     raise HTTPException(status_code=400, detail='missing PR data in webhook payload')
 
-  # run the review
   result = await run_review(owner, repo_name, pr_number, commit_sha)
   return result
 
 
 class ManualReviewRequest(BaseModel):
-  owner: str = Field(..., description='repo owner (e.g. amrithpusala)')
-  repo: str = Field(..., description='repo name (e.g. codesentry)')
+  owner: str = Field(..., description='repo owner')
+  repo: str = Field(..., description='repo name')
   pr_number: int = Field(..., ge=1, description='pull request number')
 
 
 @app.post('/api/review')
 async def manual_review(req: ManualReviewRequest, request: Request):
-  """manually trigger a review on a pull request.
-  useful for testing without setting up webhooks.
-  """
+  """manually trigger a review on a pull request."""
   check_rate_limit(request.client.host)
 
-  # fetch the PR to get the head commit SHA
   import httpx
   token = os.getenv('GITHUB_TOKEN', '')
   async with httpx.AsyncClient() as client:
@@ -163,11 +142,7 @@ async def manual_review(req: ManualReviewRequest, request: Request):
 
 
 async def run_review(owner, repo, pr_number, commit_sha):
-  """core review logic: fetch diff, parse chunks, review with Claude, post comments.
-
-  this is called by both the webhook handler and the manual review endpoint.
-  """
-  from collections import defaultdict
+  """core review logic: fetch diff, parse chunks, triage with classifier, review with Claude."""
   from app.reviewer import review_chunks, format_comment
 
   start = time.time()
@@ -201,42 +176,13 @@ async def run_review(owner, repo, pr_number, commit_sha):
   for chunk, score, label in high_risk_chunks:
     chunks_by_file[chunk.file_path].append(chunk)
 
-  # step 4: score each chunk with the risk classifier
-  scored_chunks = []
-  high_risk_by_file = defaultdict(list)
-
-  for chunk in chunks:
-    score_result = risk_classifier.score_chunks([chunk])
-    scored_chunks.append({
-      'chunk': chunk,
-      **score_result,
-    })
-
-    # only send high-risk chunks to the LLM
-    if score_result['risk_score'] >= risk_classifier.RISK_THRESHOLD:
-      high_risk_by_file[chunk.file_path].append(chunk)
-
-  # step 5: send high-risk chunks to Claude for review
-  if high_risk_by_file:
-    findings = await review_chunks(high_risk_by_file)
+  # step 5: send to Claude for review
+  if chunks_by_file:
+    findings = await review_chunks(chunks_by_file)
   else:
     findings = []
 
-  # add risk factor annotations for chunks that weren't sent to LLM
-  # but still have notable risk signals
-  for sc in scored_chunks:
-    if sc['risk_score'] < risk_classifier.RISK_THRESHOLD and sc['risk_factors']:
-      findings.append({
-        'file_path': sc['chunk'].file_path,
-        'line': sc['chunk'].end_line,
-        'type': 'style',
-        'severity': 'low',
-        'message': f'Risk signals detected: {", ".join(sc["risk_factors"])}. '
-                   f'Risk score: {sc["risk_score"]:.2f} (below review threshold).',
-        'line_content': '',
-      })
-
-  # step 5: format findings into GitHub PR comments
+  # step 6: format findings into GitHub PR comments
   review_comments = []
   for finding in findings:
     review_comments.append({
@@ -245,10 +191,9 @@ async def run_review(owner, repo, pr_number, commit_sha):
       'body': format_comment(finding),
     })
 
-  # step 6: post the review on the PR
+  # step 7: post the review on the PR
   files_checked = len(chunks_by_file)
   if review_comments:
-    # build summary with finding counts
     bug_count = sum(1 for f in findings if f['type'] == 'bug')
     sec_count = sum(1 for f in findings if f['type'] == 'security')
     perf_count = sum(1 for f in findings if f['type'] == 'performance')
@@ -284,10 +229,9 @@ async def run_review(owner, repo, pr_number, commit_sha):
       review_comments, summary
     )
   else:
-    # no issues found, post a clean summary
     summary = (
       f'## CodeSentry Review\n\n'
-      f'Analyzed **{len(chunks)}** code chunks across **{files_checked}** files.\n\n'
+      f'Scanned **{len(chunks)}** code chunks across **{files_checked}** files.\n\n'
       f'No issues found. Code looks clean.'
     )
     await post_review_summary(
@@ -325,25 +269,19 @@ async def run_review(owner, repo, pr_number, commit_sha):
 # --- snippet review (for testing and frontend) ---
 
 class SnippetReviewRequest(BaseModel):
-  code: str = Field(..., max_length=10000,
-                    description='code to review')
-  language: str = Field(default='python',
-                        description='programming language')
-  filename: str = Field(default='snippet.py',
-                        description='filename for context')
+  code: str = Field(..., max_length=10000, description='code to review')
+  language: str = Field(default='python', description='programming language')
+  filename: str = Field(default='snippet.py', description='filename for context')
 
 
 @app.post('/api/review-snippet')
 async def review_snippet(req: SnippetReviewRequest, request: Request):
-  """review a code snippet directly without a GitHub PR.
-  useful for testing the review engine or building a frontend.
-  """
+  """review a code snippet directly without a GitHub PR."""
   check_rate_limit(request.client.host)
 
   from app.diff_parser import DiffChunk
   from app.reviewer import review_chunks, format_comment
 
-  # wrap the snippet as a fake diff chunk
   lines = req.code.split('\n')
   chunk = DiffChunk(
     file_path=req.filename,
@@ -371,40 +309,4 @@ async def review_snippet(req: SnippetReviewRequest, request: Request):
     ],
     'total_findings': len(findings),
     'time_seconds': round(elapsed, 2),
-  }
-
-
-# --- risk scoring endpoint ---
-
-class RiskScoreRequest(BaseModel):
-  code: str = Field(..., max_length=10000, description='code to score')
-  filename: str = Field(default='snippet.py', description='filename for context')
-
-
-@app.post('/api/risk-score')
-async def risk_score(req: RiskScoreRequest, request: Request):
-  """score a code snippet for bug risk without triggering a full LLM review.
-  returns the risk score, label, and top risk factors.
-  """
-  check_rate_limit(request.client.host)
-
-  from app.diff_parser import DiffChunk
-
-  lines = req.code.split('\n')
-  chunk = DiffChunk(
-    file_path=req.filename,
-    start_line=1,
-    end_line=len(lines),
-    added_lines=lines,
-  )
-
-  result = risk_classifier.score_chunks([chunk])
-
-  return {
-    'risk_score': result['risk_score'],
-    'risk_label': result['risk_label'],
-    'risk_factors': result['risk_factors'],
-    'would_trigger_llm': result['risk_score'] >= risk_classifier.RISK_THRESHOLD,
-    'threshold': risk_classifier.RISK_THRESHOLD,
-    'features': result['features'],
   }
