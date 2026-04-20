@@ -95,6 +95,9 @@ async def github_webhook(request: Request):
   body = await request.body()
   signature = request.headers.get('X-Hub-Signature-256', '')
 
+  if is_production and not os.getenv('GITHUB_WEBHOOK_SECRET'):
+    raise HTTPException(status_code=500, detail='GITHUB_WEBHOOK_SECRET is not configured')
+
   if not verify_webhook_signature(body, signature):
     raise HTTPException(status_code=401, detail='invalid webhook signature')
 
