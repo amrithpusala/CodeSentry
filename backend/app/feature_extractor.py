@@ -54,6 +54,13 @@ class CodeFeatures:
   is_test_file: bool = False
   file_extension_id: int = 0  # numeric encoding of file type
 
+  # semantic features — NOT in to_vector (model compat); used for score adjustment + prompts
+  cross_function_calls: int = 0    # calls to functions not defined in this chunk
+  import_complexity: int = 0       # new import statements added
+  error_handling_ratio: float = 0.0  # try/except keywords / total added lines
+  has_test_coverage: bool = False  # a test file for this source file exists in the PR
+  commit_history_risk: float = 0.0  # fraction of recent commits that are bug fixes
+
   def to_vector(self):
     """convert to a flat list of floats for the classifier."""
     return [
@@ -213,5 +220,56 @@ def extract_features(chunk):
 
   # magic numbers
   features.num_magic_numbers = len(MAGIC_NUMBER.findall(code_text))
+
+  # semantic features (computed from chunk content alone)
+  defined_names = set(re.findall(r'(?:def|function|func|fn)\s+(\w+)', code_text))
+  defined_names |= set(re.findall(r'const\s+(\w+)\s*=', code_text))
+  all_calls = set(re.findall(r'\b(\w+)\s*\(', code_text))
+  _BUILTINS = {
+    'print', 'len', 'range', 'str', 'int', 'float', 'bool', 'list', 'dict',
+    'set', 'tuple', 'type', 'isinstance', 'hasattr', 'getattr', 'setattr',
+    'super', 'zip', 'map', 'filter', 'sorted', 'enumerate', 'open', 'format',
+    'repr', 'id', 'hash', 'min', 'max', 'abs', 'sum', 'any', 'all', 'next',
+    'iter', 'vars', 'dir', 'callable', 'staticmethod', 'classmethod', 'property',
+  }
+  features.cross_function_calls = len(all_calls - defined_names - _BUILTINS)
+
+  import_pat = re.compile(r'^\s*(import\s+\S|from\s+\S+\s+import)', re.MULTILINE)
+  features.import_complexity = len(import_pat.findall(code_text))
+
+  try_except_count = len(re.findall(r'\b(try|except|catch)\b', code_text))
+  features.error_handling_ratio = round(try_except_count / max(len(lines), 1), 4)
+
+  return features
+
+
+_BUG_FIX_RE = re.compile(
+  r'\b(fix|bug|hotfix|patch|revert|regression|error|crash|issue|broken|wrong|incorrect)\b',
+  re.IGNORECASE,
+)
+
+
+def enrich_features(features, pr_file_paths, chunk_file_path, commit_messages):
+  """enrich a CodeFeatures object with context that extract_features cannot compute.
+
+  mutates and returns the same features object.
+
+  args:
+    features: existing CodeFeatures from extract_features()
+    pr_file_paths: list of all file paths changed in this PR
+    chunk_file_path: the file this chunk belongs to
+    commit_messages: recent commit messages for chunk_file_path from GitHub API
+  """
+  stem = chunk_file_path.rsplit('/', 1)[-1].rsplit('.', 1)[0]
+  features.has_test_coverage = any(
+    f'test_{stem}' in p or f'{stem}_test' in p or f'spec_{stem}' in p
+    for p in pr_file_paths
+  )
+
+  if commit_messages:
+    bug_count = sum(1 for msg in commit_messages if _BUG_FIX_RE.search(msg))
+    features.commit_history_risk = round(bug_count / len(commit_messages), 4)
+  else:
+    features.commit_history_risk = 0.0
 
   return features
