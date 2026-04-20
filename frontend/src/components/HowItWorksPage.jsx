@@ -20,9 +20,11 @@ export default function HowItWorksPage() {
           null,
           { label: 'Risk Classifier', sub: 'PyTorch, 2ms' },
           null,
+          { label: 'Context Builder', sub: 'PR meta + file structure' },
+          null,
           { label: 'Claude Review', sub: 'high risk only' },
           null,
-          { label: 'PR Comments', sub: 'inline' },
+          { label: 'PR Comments', sub: 'inline + suggestions' },
         ].map((item, i) =>
           item ? (
             <div key={i} className="bg-zinc-900/50 border border-zinc-800/60 rounded-lg
@@ -42,13 +44,15 @@ export default function HowItWorksPage() {
           { n: 1, title: 'Diff Parsing',
             desc: 'When a PR is opened, CodeSentry receives a GitHub webhook, fetches the unified diff, and breaks it into reviewable code chunks. Non-code files (configs, lockfiles, markdown) are filtered out. Small adjacent changes are merged into logical units.' },
           { n: 2, title: 'Feature Extraction',
-            desc: 'Each code chunk is analyzed for 27 features: size metrics (lines added, nesting depth), complexity indicators (branches, loops, cyclomatic estimate), risky patterns (eval, SQL strings, hardcoded secrets, shell commands), and code hygiene signals (comment ratio, debug prints, magic numbers).' },
+            desc: 'Each code chunk is analyzed for 27 syntax features (size, complexity, risky patterns, code hygiene) plus 5 new semantic features: cross-function call depth, import complexity, error-handling ratio, test coverage presence, and commit history risk. The new features adjust the classifier score without retraining the model.' },
           { n: 3, title: 'Risk Classification',
-            desc: 'A PyTorch feedforward network (3 layers, 128 units) trained on 1,200+ real commits from Django, React, Flask, and 12 other open-source repos scores each chunk from 0 (clean) to 1 (likely buggy). Chunks above 0.6 are flagged for deep review. This runs in under 2ms for an entire PR.' },
-          { n: 4, title: 'LLM Review',
-            desc: 'High-risk chunks are sent to Claude with file context. The LLM analyzes the code for bugs, security vulnerabilities, performance issues, and code quality problems. Findings are returned as structured JSON with severity levels, exact line references, and fix suggestions.' },
-          { n: 5, title: 'PR Comments',
-            desc: 'Findings are formatted as inline PR comments with colored severity indicators and posted directly on the pull request. A summary comment shows the total breakdown: bugs found, security issues, files scanned, and how many chunks the classifier triaged.' },
+            desc: 'A PyTorch feedforward network (3 layers, 128 units) trained on 1,200+ real commits scores each chunk from 0 to 1. Semantic signals from step 2 apply post-hoc score adjustments (e.g. +0.10 for files with >50% bug-fix commit history). Chunks above 0.6 are flagged for deep review in under 2ms.' },
+          { n: 4, title: 'Context Building',
+            desc: 'Before sending to the LLM, CodeSentry fetches the PR title and description, extracts function signatures from the full file (not just the diff), and builds a cross-file summary of all other changed files in the PR. The risk classifier\'s flags become a "focus areas" section in the prompt.' },
+          { n: 5, title: 'LLM Review',
+            desc: 'High-risk chunks are sent to Claude with the full context package: PR intent, file structure, cross-file signatures, and risk focus areas. Claude checks for interface mismatches across files, not just within each one. Each finding includes a concrete fix suggestion and a confidence score. Findings below 50% confidence are filtered out.' },
+          { n: 6, title: 'PR Comments',
+            desc: 'Findings are grouped by pattern (e.g. the same issue in 3 files becomes one comment noting all locations), formatted with colored severity indicators, concrete fix suggestions, and confidence scores, then posted as inline PR review comments with a full summary.' },
         ].map((step, i) => (
           <div key={i} className="bg-zinc-900/20 border border-zinc-800/50 rounded-xl p-5
             hover:border-zinc-700/60 transition-colors"

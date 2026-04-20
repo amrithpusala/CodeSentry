@@ -30,8 +30,10 @@ export default function AboutPage() {
           trained on 1,200+ real bug-fix commits scores each code chunk in 2ms.
           Only high-risk chunks (above 0.6 threshold) get sent to Claude for
           detailed review. This cuts API costs by 40-60% while maintaining 73%
-          bug recall. The LLM acts as a second filter, so missed bugs from the
-          classifier still get caught.
+          bug recall. Reviews now include cross-file context, PR title and
+          description, full file structure signatures, and concrete fix
+          suggestions with confidence scores. Low-confidence findings are
+          automatically filtered to reduce noise.
         </p>
       </div>
 
@@ -71,7 +73,9 @@ export default function AboutPage() {
             { name: 'Automatic PR Reviews', desc: 'Triggers on PR open via GitHub webhooks' },
             { name: 'Bug Risk Classifier', desc: 'PyTorch model trained on real bug-fix commits' },
             { name: 'Smart Triage', desc: 'Only high-risk code sent to expensive LLM review' },
-            { name: 'Inline Comments', desc: 'Findings posted directly on the PR diff' },
+            { name: 'Cross-File Context', desc: 'Reviews check function signatures across all changed files and verify interface consistency' },
+            { name: 'Fix Suggestions', desc: 'Each finding includes a concrete code fix and a confidence score; low-confidence findings are filtered' },
+            { name: 'Inline Comments', desc: 'Findings posted directly on the PR diff, grouped when the same pattern appears in multiple files' },
             { name: 'Multi-Language', desc: 'Python, JS, TS, Java, Go, Rust, C, and more' },
             { name: 'Snippet Review', desc: 'Paste code in the dashboard for instant analysis' },
           ].map((f, i) => (
