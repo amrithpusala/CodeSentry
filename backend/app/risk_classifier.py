@@ -56,5 +56,59 @@ def score_chunks(chunks):
   return results
 
 
+def score_chunks_with_context(chunks, enriched_features):
+  """score chunks using the PyTorch model, then apply semantic adjustments.
+
+  args:
+    chunks: list of DiffChunk
+    enriched_features: dict mapping id(chunk) -> CodeFeatures with new fields populated
+
+  returns:
+    list of (chunk, score, label) — same shape as score_chunks()
+  """
+  base_results = score_chunks(chunks)
+  adjusted = []
+  for chunk, base_score, _ in base_results:
+    score = base_score
+    feat = enriched_features.get(id(chunk))
+    if feat is not None:
+      if feat.commit_history_risk > 0.5:
+        score = min(score + 0.10, 1.0)
+      if not feat.has_test_coverage and feat.cross_function_calls > 5:
+        score = min(score + 0.05, 1.0)
+      if feat.import_complexity > 5:
+        score = min(score + 0.05, 1.0)
+      if feat.error_handling_ratio < 0.05 and feat.cross_function_calls > 3:
+        score = min(score + 0.05, 1.0)
+    score = round(score, 4)
+    label = 'high' if score >= 0.7 else 'medium' if score >= THRESHOLD else 'low'
+    adjusted.append((chunk, score, label))
+  return adjusted
+
+
+def get_focus_areas(features):
+  """return list of focus-area strings for the LLM prompt based on classifier signals."""
+  areas = []
+  if features.has_eval_exec:
+    areas.append('code execution via eval/exec (injection risk)')
+  if features.has_sql_string:
+    areas.append('SQL string construction (injection risk)')
+  if features.has_hardcoded_secret:
+    areas.append('potential hardcoded credential')
+  if features.has_shell_command:
+    areas.append('shell command execution')
+  if features.cyclomatic_estimate > 8:
+    areas.append(f'high cyclomatic complexity ({features.cyclomatic_estimate})')
+  if features.commit_history_risk > 0.4:
+    areas.append(f'file has {features.commit_history_risk:.0%} bug-fix commit history')
+  if not features.has_test_coverage:
+    areas.append('no corresponding test file in this PR')
+  if features.cross_function_calls > 8:
+    areas.append(f'calls {features.cross_function_calls} external functions (integration risk)')
+  if features.error_handling_ratio < 0.05 and features.num_added_lines > 20:
+    areas.append('low error handling coverage for a large change')
+  return areas
+
+
 def is_loaded():
   return _model is not None
