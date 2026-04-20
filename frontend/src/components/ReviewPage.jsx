@@ -34,6 +34,12 @@ export default function ReviewPage() {
   const [time, setTime] = useState(null)
 
   const API_BASE = import.meta.env.VITE_API_URL || ''
+  const TIMEOUT_MS = 60000
+
+  const EXT_MAP = {
+    python: 'py', javascript: 'js', typescript: 'ts',
+    java: 'java', go: 'go', rust: 'rs', c: 'c', cpp: 'cpp',
+  }
 
   async function runReview() {
     if (!code.trim()) return
@@ -42,26 +48,43 @@ export default function ReviewPage() {
     setFindings(null)
     setTime(null)
 
+    const controller = new AbortController()
+    const timeoutId = setTimeout(() => controller.abort(), TIMEOUT_MS)
+
     try {
       const resp = await fetch(`${API_BASE}/api/review-snippet`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        signal: controller.signal,
         body: JSON.stringify({
-          code: code,
-          language: language,
-          filename: `snippet.${language === 'python' ? 'py' : language === 'javascript' ? 'js' : language}`,
+          code,
+          language,
+          filename: `snippet.${EXT_MAP[language] || language}`,
         }),
       })
+
       if (!resp.ok) {
-        const err = await resp.json()
-        throw new Error(err.detail || 'review failed')
+        let detail = `server error (${resp.status})`
+        try {
+          const err = await resp.json()
+          detail = err.detail || detail
+        } catch (_) { /* empty body — use status fallback */ }
+        throw new Error(detail)
       }
+
       const data = await resp.json()
       setFindings(data.findings)
       setTime(data.time_seconds)
     } catch (err) {
-      setError(err.message)
+      if (err.name === 'AbortError') {
+        setError('Request timed out — the backend may be waking up from a cold start. Wait 30 seconds and try again.')
+      } else if (err.message.includes('Failed to fetch') || err.message.includes('NetworkError')) {
+        setError('Could not reach the backend — it may be starting up. Wait 30 seconds and try again.')
+      } else {
+        setError(err.message)
+      }
     } finally {
+      clearTimeout(timeoutId)
       setLoading(false)
     }
   }

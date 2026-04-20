@@ -147,6 +147,8 @@ async def review_chunks(chunks_by_file, pr_context=None,
   api_key = get_api_key()
   all_findings = []
 
+  skipped_files = []
+
   async with httpx.AsyncClient(timeout=60.0) as client:
     for file_path, chunks in chunks_by_file.items():
       total_lines = sum(c.num_added for c in chunks)
@@ -199,11 +201,15 @@ async def review_chunks(chunks_by_file, pr_context=None,
         findings = _parse_findings(text, file_path, chunks)
         all_findings.extend(findings)
 
+      except httpx.TimeoutException:
+        print(f'claude API timeout for {file_path} — skipping')
+        skipped_files.append(file_path)
+        continue
       except Exception as e:
         print(f'error reviewing {file_path}: {e}')
         continue
 
-  return _group_findings(all_findings)
+  return _group_findings(all_findings), skipped_files
 
 
 def _parse_findings(response_text, file_path, chunks):

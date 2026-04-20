@@ -174,12 +174,15 @@ async def run_review(owner, repo, pr_number, commit_sha):
   start = time.time()
 
   # step 1: fetch diff + PR metadata + changed files list in parallel
-  diff_text, pr_meta, pr_files_data = await asyncio.gather(
+  results = await asyncio.gather(
     fetch_pr_diff(owner, repo, pr_number),
     fetch_pr_metadata(owner, repo, pr_number),
     fetch_pr_files(owner, repo, pr_number),
-    return_exceptions=False,
+    return_exceptions=True,
   )
+  diff_text = results[0] if not isinstance(results[0], Exception) else None
+  pr_meta = results[1] if not isinstance(results[1], Exception) else {}
+  pr_files_data = results[2] if not isinstance(results[2], Exception) else []
 
   if not diff_text:
     return {'status': 'error', 'detail': 'could not fetch PR diff'}
@@ -274,14 +277,14 @@ async def run_review(owner, repo, pr_number, commit_sha):
 
   # step 7: send high-risk chunks to Claude for review
   if chunks_by_file:
-    findings = await review_chunks(
+    findings, skipped_files = await review_chunks(
       chunks_by_file,
       pr_context=pr_context,
       file_structures=file_structures,
       focus_areas_by_file=focus_areas_by_file,
     )
   else:
-    findings = []
+    findings, skipped_files = [], []
 
   # step 5: format findings into GitHub PR comments
   review_comments = []
@@ -353,6 +356,7 @@ async def run_review(owner, repo, pr_number, commit_sha):
     'findings': len(findings),
     'comments_posted': len(review_comments),
     'review_posted': posted,
+    'files_skipped': skipped_files,
     'time_seconds': round(elapsed, 2),
     'triage': {
       'total_chunks': len(chunks),
@@ -401,7 +405,7 @@ async def review_snippet(req: SnippetReviewRequest, request: Request):
   )
 
   start = time.time()
-  findings = await review_chunks({req.filename: [chunk]})
+  findings, _ = await review_chunks({req.filename: [chunk]})
   elapsed = time.time() - start
 
   return {
