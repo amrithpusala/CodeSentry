@@ -50,6 +50,8 @@ ALLOWED_ORIGINS = [
   'http://localhost:5173',
   'http://localhost:3000',
   'http://127.0.0.1:5173',
+  'https://frontend-azure-two-61.vercel.app',
+  'https://frontend-r8hiuq5vt-amrithpusalas-projects.vercel.app',
 ]
 
 app.add_middleware(
