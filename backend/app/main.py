@@ -52,6 +52,7 @@ ALLOWED_ORIGINS = [
   'http://127.0.0.1:5173',
   'https://frontend-azure-two-61.vercel.app',
   'https://frontend-r8hiuq5vt-amrithpusalas-projects.vercel.app',
+  'https://code-sentry-ai.vercel.app',
 ]
 
 app.add_middleware(
