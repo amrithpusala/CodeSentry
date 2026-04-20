@@ -10,6 +10,7 @@
 import os
 import hmac
 import hashlib
+import base64
 import httpx
 
 GITHUB_API = 'https://api.github.com'
@@ -97,6 +98,97 @@ async def fetch_pr_files(owner, repo, pr_number):
       return resp.json()
     else:
       print(f'failed to fetch PR files: {resp.status_code}')
+      return []
+
+
+async def fetch_pr_metadata(owner, repo, pr_number):
+  """fetch PR title, description, and branch info.
+
+  returns dict with 'title', 'body', 'base_branch' keys, or {} on failure.
+  """
+  token = get_github_token()
+  url = f'{GITHUB_API}/repos/{owner}/{repo}/pulls/{pr_number}'
+
+  async with httpx.AsyncClient() as client:
+    resp = await client.get(
+      url,
+      headers={
+        'Authorization': f'token {token}',
+        'Accept': 'application/vnd.github.v3+json',
+        'User-Agent': 'CodeSentry/1.0',
+      },
+      timeout=30.0,
+    )
+
+    if resp.status_code == 200:
+      data = resp.json()
+      return {
+        'title': data.get('title', ''),
+        'body': data.get('body') or '',
+        'base_branch': data.get('base', {}).get('ref', ''),
+      }
+    else:
+      print(f'failed to fetch PR metadata: {resp.status_code}')
+      return {}
+
+
+async def fetch_file_content(owner, repo, file_path, ref):
+  """fetch the raw content of a file at a given commit ref.
+
+  returns decoded file content string, or '' on failure or if file > 100 KB.
+  """
+  token = get_github_token()
+  url = f'{GITHUB_API}/repos/{owner}/{repo}/contents/{file_path}'
+
+  async with httpx.AsyncClient() as client:
+    resp = await client.get(
+      url,
+      params={'ref': ref},
+      headers={
+        'Authorization': f'token {token}',
+        'Accept': 'application/vnd.github.v3+json',
+        'User-Agent': 'CodeSentry/1.0',
+      },
+      timeout=30.0,
+    )
+
+    if resp.status_code == 200:
+      data = resp.json()
+      if data.get('size', 0) > 100_000:
+        return ''
+      content = data.get('content', '')
+      try:
+        return base64.b64decode(content).decode('utf-8', errors='replace')
+      except Exception:
+        return ''
+    else:
+      return ''
+
+
+async def fetch_commit_messages(owner, repo, file_path, limit=20):
+  """fetch the last `limit` commit messages that touched a specific file.
+
+  returns list of commit message strings, or [] on failure.
+  """
+  token = get_github_token()
+  url = f'{GITHUB_API}/repos/{owner}/{repo}/commits'
+
+  async with httpx.AsyncClient() as client:
+    resp = await client.get(
+      url,
+      params={'path': file_path, 'per_page': limit},
+      headers={
+        'Authorization': f'token {token}',
+        'Accept': 'application/vnd.github.v3+json',
+        'User-Agent': 'CodeSentry/1.0',
+      },
+      timeout=30.0,
+    )
+
+    if resp.status_code == 200:
+      return [c['commit']['message'] for c in resp.json()]
+    else:
+      print(f'failed to fetch commit history for {file_path}: {resp.status_code}')
       return []
 
 
