@@ -9,9 +9,12 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
 from app.diff_parser import parse_diff, merge_small_chunks
+import asyncio
+import re
 from app.github_client import (
   verify_webhook_signature, fetch_pr_diff, fetch_pr_files,
-  post_review_summary,
+  post_review_summary, fetch_pr_metadata, fetch_file_content,
+  fetch_commit_messages,
 )
 from app import risk_classifier
 
@@ -161,15 +164,24 @@ async def run_review(owner, repo, pr_number, commit_sha):
 
   this is called by both the webhook handler and the manual review endpoint.
   """
-  from collections import defaultdict
-  from app.reviewer import review_chunks, format_comment
+  from app.reviewer import review_chunks, format_comment, _extract_file_structure
+  from app.feature_extractor import extract_features, enrich_features
+  from app.risk_classifier import score_chunks_with_context, get_focus_areas
 
   start = time.time()
 
-  # step 1: fetch the diff
-  diff_text = await fetch_pr_diff(owner, repo, pr_number)
+  # step 1: fetch diff + PR metadata + changed files list in parallel
+  diff_text, pr_meta, pr_files_data = await asyncio.gather(
+    fetch_pr_diff(owner, repo, pr_number),
+    fetch_pr_metadata(owner, repo, pr_number),
+    fetch_pr_files(owner, repo, pr_number),
+    return_exceptions=False,
+  )
+
   if not diff_text:
     return {'status': 'error', 'detail': 'could not fetch PR diff'}
+
+  pr_file_paths = [f['filename'] for f in pr_files_data]
 
   # step 2: parse into reviewable chunks
   chunks = parse_diff(diff_text)
@@ -183,21 +195,88 @@ async def run_review(owner, repo, pr_number, commit_sha):
       'chunks': 0,
     }
 
-  # step 3: score chunks with the risk classifier for triage
-  scored = risk_classifier.score_chunks(chunks)
+  # step 3: extract + enrich features for all chunks
+  features_map = {id(c): extract_features(c) for c in chunks}
+
+  # fetch commit history for up to 5 unique files in parallel
+  unique_files = list({c.file_path for c in chunks})[:5]
+  commit_results = await asyncio.gather(
+    *[fetch_commit_messages(owner, repo, fp) for fp in unique_files],
+    return_exceptions=True,
+  )
+  commit_msgs_by_file = {
+    fp: (msgs if isinstance(msgs, list) else [])
+    for fp, msgs in zip(unique_files, commit_results)
+  }
+
+  for chunk in chunks:
+    msgs = commit_msgs_by_file.get(chunk.file_path, [])
+    enrich_features(features_map[id(chunk)], pr_file_paths, chunk.file_path, msgs)
+
+  # step 4: score with semantic adjustments
+  scored = score_chunks_with_context(chunks, features_map)
 
   # split into high-risk (send to LLM) and low-risk (skip)
   high_risk_chunks = [(c, s, l) for c, s, l in scored if s >= risk_classifier.THRESHOLD]
   low_risk_chunks = [(c, s, l) for c, s, l in scored if s < risk_classifier.THRESHOLD]
 
-  # step 4: group high-risk chunks by file for batched LLM review
+  # step 5: group high-risk chunks by file for batched LLM review
   chunks_by_file = defaultdict(list)
   for chunk, score, label in high_risk_chunks:
     chunks_by_file[chunk.file_path].append(chunk)
 
-  # step 5: send high-risk chunks to Claude for review
+  # step 6: build cross-file context for prompts
+  # summarise signatures from each changed file's patch (capped at 10 files)
+  changed_files_summary_lines = []
+  for fi in pr_files_data[:10]:
+    fname = fi.get('filename', '')
+    patch = fi.get('patch', '') or ''
+    if fname and patch:
+      added_sigs = [
+        ln[1:].strip() for ln in patch.split('\n')
+        if ln.startswith('+') and re.match(r'^\+\s*(def |function |func |class )', ln)
+      ]
+      if added_sigs:
+        changed_files_summary_lines.append(f'`{fname}`: {"; ".join(added_sigs[:3])}')
+
+  pr_context = {
+    'title': pr_meta.get('title', ''),
+    'body': (pr_meta.get('body') or '')[:500],
+    'changed_files_summary': '\n'.join(changed_files_summary_lines),
+  }
+
+  # build per-file focus areas from enriched features
+  focus_areas_by_file = {}
+  for chunk, _, _ in high_risk_chunks:
+    feat = features_map.get(id(chunk))
+    if feat:
+      areas = get_focus_areas(feat)
+      if areas:
+        existing = focus_areas_by_file.setdefault(chunk.file_path, [])
+        for a in areas:
+          if a not in existing:
+            existing.append(a)
+
+  # fetch full file structure for high-risk files (up to 5, in parallel)
+  high_risk_files = list(chunks_by_file.keys())[:5]
+  file_contents = await asyncio.gather(
+    *[fetch_file_content(owner, repo, fp, commit_sha) for fp in high_risk_files],
+    return_exceptions=True,
+  )
+  file_structures = {
+    fp: _extract_file_structure(content)
+    for fp, content in zip(high_risk_files, file_contents)
+    if isinstance(content, str) and content
+  }
+
+  # step 7: send high-risk chunks to Claude for review
   if chunks_by_file:
-    findings = await review_chunks(chunks_by_file)
+    findings = await review_chunks(
+      chunks_by_file,
+      pr_context=pr_context,
+      file_structures=file_structures,
+      focus_areas_by_file=focus_areas_by_file,
+    )
   else:
     findings = []
 
