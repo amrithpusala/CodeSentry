@@ -1,110 +1,272 @@
+const STACK = [
+  { icon: 'API',  name: 'FastAPI',      role: 'API + Webhooks'   },
+  { icon: 'ML',   name: 'PyTorch',      role: 'Risk Classifier'  },
+  { icon: 'LLM',  name: 'Claude API',   role: 'Code Review'      },
+  { icon: 'UI',   name: 'React + Vite', role: 'Dashboard'        },
+  { icon: 'GH',   name: 'GitHub API',   role: 'PR Integration'   },
+  { icon: 'CSS',  name: 'Tailwind CSS', role: 'Styling'          },
+]
+
+const FEATURES = [
+  { name: 'Automatic PR Reviews',  desc: 'Triggers on PR open via GitHub webhooks' },
+  { name: 'Bug Risk Classifier',   desc: 'PyTorch model trained on 1,200+ real bug-fix commits' },
+  { name: 'Smart Triage',          desc: 'Only high-risk chunks sent to LLM — 40–60% API cost reduction' },
+  { name: 'Cross-File Context',    desc: 'Reviews check signatures across all changed files and verify interface consistency' },
+  { name: 'Fix Suggestions',       desc: 'Each finding includes a concrete code fix and a confidence score; low-confidence findings are filtered' },
+  { name: 'Inline Comments',       desc: 'Findings posted on the PR diff, grouped when the same pattern appears in multiple files' },
+  { name: 'Multi-Language',        desc: 'Python, JS, TS, Java, Go, Rust, C, and more' },
+  { name: 'Snippet Review',        desc: 'Paste any code snippet in this dashboard for instant analysis' },
+]
+
 export default function AboutPage() {
   return (
-    <div className="space-y-10" style={{ animation: 'fadeIn .4s ease-out' }}>
-      <div className="text-center py-6">
-        <h2 className="text-2xl font-bold tracking-tight mb-2 font-display">
-          About CodeSentry
-        </h2>
-        <p className="text-zinc-500 text-sm max-w-lg mx-auto">
+    <div style={{ animation: 'fadeUp 0.35s ease-out both' }}>
+
+      {/* ── hero ── */}
+      <div style={{ paddingBottom: '36px', borderBottom: '1px solid var(--border)', marginBottom: '36px' }}>
+        <div style={{
+          fontFamily: 'IBM Plex Mono, monospace',
+          fontSize: '10px',
+          fontWeight: 500,
+          letterSpacing: '0.2em',
+          color: 'var(--amber)',
+          marginBottom: '12px',
+        }}>
+          ABOUT // ML@PURDUE SYMPOSIUM PROJECT
+        </div>
+        <h1 style={{
+          fontFamily: 'Syne, sans-serif',
+          fontWeight: 900,
+          fontSize: 'clamp(36px, 6vw, 60px)',
+          lineHeight: 0.95,
+          letterSpacing: '-0.03em',
+          color: 'var(--text)',
+          marginBottom: '16px',
+        }}>
+          ABOUT.
+        </h1>
+        <p style={{
+          fontFamily: 'IBM Plex Sans, sans-serif',
+          fontWeight: 300,
+          fontSize: '14px',
+          lineHeight: 1.7,
+          color: 'var(--text-2)',
+          maxWidth: '460px',
+        }}>
           An AI code review bot that combines a custom ML classifier with
-          LLM analysis to catch bugs in pull requests. Built for the
-          ML@Purdue Symposium.
+          LLM analysis to catch bugs in pull requests.
         </p>
       </div>
 
-      {/* why */}
-      <div className="bg-zinc-900/20 border border-zinc-800/50 rounded-xl p-6 space-y-3">
-        <h3 className="text-sm font-semibold text-green-400 font-display">The Problem</h3>
-        <p className="text-zinc-400 text-sm leading-relaxed">
-          Copilot Code Review costs $10-19/month and is a black-box LLM wrapper.
-          It sends every code change to GPT regardless of risk, wasting API
-          calls on trivial changes. There's no custom ML, no transparency,
-          and no way to inspect or retrain the model.
-        </p>
+      {/* ── problem / solution ── */}
+      <div style={{
+        display: 'grid',
+        gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))',
+        gap: '1px',
+        background: 'var(--border)',
+        border: '1px solid var(--border)',
+        marginBottom: '40px',
+        animation: 'fadeUp 0.35s ease-out both',
+        animationDelay: '0.08s',
+      }}>
+        <div style={{ background: 'var(--surface)', padding: '28px' }}>
+          <div style={{
+            fontFamily: 'IBM Plex Mono, monospace',
+            fontSize: '10px',
+            fontWeight: 500,
+            letterSpacing: '0.15em',
+            color: 'var(--red)',
+            marginBottom: '14px',
+          }}>
+            THE PROBLEM
+          </div>
+          <p style={{
+            fontFamily: 'IBM Plex Sans, sans-serif',
+            fontWeight: 300,
+            fontSize: '13px',
+            lineHeight: 1.75,
+            color: 'var(--text-2)',
+          }}>
+            Copilot Code Review costs $10–19/month and is a black-box LLM wrapper. It sends every
+            code change to GPT regardless of risk, wasting API calls on trivial changes. There's
+            no custom ML, no transparency, and no way to inspect or retrain the model.
+          </p>
+        </div>
+
+        <div style={{ background: 'var(--surface)', padding: '28px' }}>
+          <div style={{
+            fontFamily: 'IBM Plex Mono, monospace',
+            fontSize: '10px',
+            fontWeight: 500,
+            letterSpacing: '0.15em',
+            color: 'var(--green)',
+            marginBottom: '14px',
+          }}>
+            THE SOLUTION
+          </div>
+          <p style={{
+            fontFamily: 'IBM Plex Sans, sans-serif',
+            fontWeight: 300,
+            fontSize: '13px',
+            lineHeight: 1.75,
+            color: 'var(--text-2)',
+          }}>
+            CodeSentry uses a two-stage pipeline. A custom PyTorch classifier trained on 1,200+
+            real bug-fix commits scores each code chunk in 2ms. Only high-risk chunks (above 0.6
+            threshold) get sent to Claude — cutting API costs 40–60% while maintaining 73% bug
+            recall. Reviews include cross-file context, full file structure, and confidence-filtered
+            fix suggestions.
+          </p>
+        </div>
       </div>
 
-      <div className="bg-zinc-900/20 border border-zinc-800/50 rounded-xl p-6 space-y-3">
-        <h3 className="text-sm font-semibold text-green-400 font-display">The Solution</h3>
-        <p className="text-zinc-400 text-sm leading-relaxed">
-          CodeSentry uses a two-stage pipeline. A custom PyTorch classifier
-          trained on 1,200+ real bug-fix commits scores each code chunk in 2ms.
-          Only high-risk chunks (above 0.6 threshold) get sent to Claude for
-          detailed review. This cuts API costs by 40-60% while maintaining 73%
-          bug recall. Reviews now include cross-file context, PR title and
-          description, full file structure signatures, and concrete fix
-          suggestions with confidence scores. Low-confidence findings are
-          automatically filtered to reduce noise.
-        </p>
-      </div>
-
-      {/* tech stack */}
-      <div>
-        <h3 className="text-lg font-semibold mb-3 font-display">Tech Stack</h3>
-        <div className="grid grid-cols-2 gap-3">
-          {[
-            { name: 'FastAPI', role: 'API + Webhooks', icon: 'API' },
-            { name: 'PyTorch', role: 'Risk Classifier', icon: 'ML' },
-            { name: 'Claude API', role: 'Code Review', icon: 'LLM' },
-            { name: 'React + Vite', role: 'Dashboard', icon: 'UI' },
-            { name: 'GitHub API', role: 'PR Integration', icon: 'GH' },
-            { name: 'Tailwind CSS', role: 'Styling', icon: 'CSS' },
-          ].map((t, i) => (
-            <div key={i} className="bg-zinc-900/30 border border-zinc-800/50 rounded-xl p-4
-              flex items-center gap-3 hover:border-zinc-700/50 transition-colors group">
-              <div className="w-9 h-9 rounded-lg bg-zinc-800/80 border border-zinc-700/50
-                flex items-center justify-center font-mono text-[10px] font-bold text-zinc-500
-                group-hover:text-green-400 group-hover:border-green-500/30 transition-all">
-                {t.icon}
-              </div>
+      {/* ── tech stack ── */}
+      <div style={{ marginBottom: '40px', animation: 'fadeUp 0.35s ease-out both', animationDelay: '0.12s' }}>
+        <div className="section-label">Tech stack</div>
+        <div style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))',
+          gap: '1px',
+          background: 'var(--border)',
+          border: '1px solid var(--border)',
+        }}>
+          {STACK.map((t, i) => (
+            <div
+              key={i}
+              className="tech-tag"
+              style={{
+                animation: 'fadeUp 0.3s ease-out both',
+                animationDelay: `${0.14 + i * 0.05}s`,
+              }}
+            >
+              <div className="tech-icon">{t.icon}</div>
               <div>
-                <div className="text-white text-sm font-semibold">{t.name}</div>
-                <div className="text-zinc-600 text-xs">{t.role}</div>
+                <div style={{
+                  fontFamily: 'IBM Plex Sans, sans-serif',
+                  fontWeight: 500,
+                  fontSize: '13px',
+                  color: 'var(--text)',
+                  marginBottom: '2px',
+                }}>
+                  {t.name}
+                </div>
+                <div style={{
+                  fontFamily: 'IBM Plex Mono, monospace',
+                  fontSize: '10px',
+                  color: 'var(--text-3)',
+                  letterSpacing: '0.05em',
+                }}>
+                  {t.role}
+                </div>
               </div>
             </div>
           ))}
         </div>
       </div>
 
-      {/* features */}
-      <div>
-        <h3 className="text-lg font-semibold mb-3 font-display">Features</h3>
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          {[
-            { name: 'Automatic PR Reviews', desc: 'Triggers on PR open via GitHub webhooks' },
-            { name: 'Bug Risk Classifier', desc: 'PyTorch model trained on real bug-fix commits' },
-            { name: 'Smart Triage', desc: 'Only high-risk code sent to expensive LLM review' },
-            { name: 'Cross-File Context', desc: 'Reviews check function signatures across all changed files and verify interface consistency' },
-            { name: 'Fix Suggestions', desc: 'Each finding includes a concrete code fix and a confidence score; low-confidence findings are filtered' },
-            { name: 'Inline Comments', desc: 'Findings posted directly on the PR diff, grouped when the same pattern appears in multiple files' },
-            { name: 'Multi-Language', desc: 'Python, JS, TS, Java, Go, Rust, C, and more' },
-            { name: 'Snippet Review', desc: 'Paste code in the dashboard for instant analysis' },
-          ].map((f, i) => (
-            <div key={i} className="bg-zinc-900/30 border border-zinc-800/50 rounded-xl p-4
-              hover:border-zinc-700/50 transition-colors">
-              <div className="text-white text-sm font-semibold">{f.name}</div>
-              <div className="text-zinc-600 text-xs mt-1">{f.desc}</div>
+      {/* ── features ── */}
+      <div style={{ marginBottom: '40px', animation: 'fadeUp 0.35s ease-out both', animationDelay: '0.16s' }}>
+        <div className="section-label">Features</div>
+        <div style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))',
+          gap: '1px',
+          background: 'var(--border)',
+          border: '1px solid var(--border)',
+        }}>
+          {FEATURES.map((f, i) => (
+            <div
+              key={i}
+              className="feature-card"
+              style={{
+                animation: 'fadeUp 0.3s ease-out both',
+                animationDelay: `${0.18 + i * 0.04}s`,
+              }}
+            >
+              <div style={{
+                fontFamily: 'IBM Plex Sans, sans-serif',
+                fontWeight: 500,
+                fontSize: '13px',
+                color: 'var(--text)',
+                marginBottom: '5px',
+              }}>
+                {f.name}
+              </div>
+              <div style={{
+                fontFamily: 'IBM Plex Sans, sans-serif',
+                fontWeight: 300,
+                fontSize: '12px',
+                lineHeight: 1.6,
+                color: 'var(--text-3)',
+              }}>
+                {f.desc}
+              </div>
             </div>
           ))}
         </div>
       </div>
 
-      {/* built by */}
-      <div className="bg-zinc-900/20 border border-zinc-800/50 rounded-xl p-6 text-center">
-        <div className="font-mono text-2xl mb-2 opacity-20">{'{ }'}</div>
-        <h3 className="text-lg font-semibold mb-1 font-display">Built by Amrith Pusala</h3>
-        <p className="text-zinc-600 text-sm mb-4">Computer Science @ Purdue University</p>
-        <div className="flex justify-center gap-3">
-          <a href="https://github.com/amrithpusala/CodeSentry" target="_blank"
+      {/* ── author ── */}
+      <div style={{
+        border: '1px solid var(--border)',
+        background: 'var(--surface)',
+        padding: '36px',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        gap: '24px',
+        flexWrap: 'wrap',
+        animation: 'fadeUp 0.35s ease-out both',
+        animationDelay: '0.28s',
+      }}>
+        <div>
+          <div style={{
+            fontFamily: 'IBM Plex Mono, monospace',
+            fontSize: '10px',
+            fontWeight: 500,
+            letterSpacing: '0.15em',
+            color: 'var(--text-3)',
+            marginBottom: '8px',
+          }}>
+            BUILT BY
+          </div>
+          <h2 style={{
+            fontFamily: 'Syne, sans-serif',
+            fontWeight: 900,
+            fontSize: '24px',
+            letterSpacing: '-0.02em',
+            color: 'var(--text)',
+            lineHeight: 1.1,
+            marginBottom: '4px',
+          }}>
+            Amrith Pusala
+          </h2>
+          <p style={{
+            fontFamily: 'IBM Plex Mono, monospace',
+            fontSize: '11px',
+            color: 'var(--text-3)',
+            letterSpacing: '0.05em',
+          }}>
+            Computer Science · Purdue University
+          </p>
+        </div>
+
+        <div style={{ display: 'flex', gap: '8px' }}>
+          <a
+            href="https://github.com/amrithpusala/CodeSentry"
+            target="_blank"
             rel="noopener noreferrer"
-            className="px-4 py-2 rounded-lg bg-zinc-900/50 border border-zinc-800/60
-              text-zinc-400 text-xs font-mono hover:border-green-500/30 hover:text-green-400 transition-colors">
-            github
+            className="link-btn"
+          >
+            GitHub ↗
           </a>
-          <a href="https://linkedin.com/in/amrithpusala" target="_blank"
+          <a
+            href="https://linkedin.com/in/amrithpusala"
+            target="_blank"
             rel="noopener noreferrer"
-            className="px-4 py-2 rounded-lg bg-zinc-900/50 border border-zinc-800/60
-              text-zinc-400 text-xs font-mono hover:border-green-500/30 hover:text-green-400 transition-colors">
-            linkedin
+            className="link-btn"
+          >
+            LinkedIn ↗
           </a>
         </div>
       </div>

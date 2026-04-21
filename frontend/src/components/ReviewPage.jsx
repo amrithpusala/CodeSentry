@@ -15,31 +15,35 @@ def run_command(user_input):
 
 const LANGUAGES = ['python', 'javascript', 'typescript', 'java', 'go', 'rust', 'c', 'cpp']
 
-const SEVERITY_STYLES = {
-  high: { bg: 'bg-red-500/10', border: 'border-red-500/30', text: 'text-red-400', dot: 'bg-red-400' },
-  medium: { bg: 'bg-yellow-500/10', border: 'border-yellow-500/30', text: 'text-yellow-400', dot: 'bg-yellow-400' },
-  low: { bg: 'bg-blue-500/10', border: 'border-blue-500/30', text: 'text-blue-400', dot: 'bg-blue-400' },
+const EXT_MAP = {
+  python: 'py', javascript: 'js', typescript: 'ts',
+  java: 'java', go: 'go', rust: 'rs', c: 'c', cpp: 'cpp',
 }
 
-const TYPE_LABELS = {
-  bug: 'BUG', security: 'SECURITY', performance: 'PERF', style: 'STYLE',
+const TYPE_SHORT = { bug: 'BUG', security: 'SEC', performance: 'PERF', style: 'STY' }
+
+const SEV_COLOR = {
+  high:   'var(--red)',
+  medium: 'var(--orange)',
+  low:    'var(--text-3)',
+}
+
+const SEV_DIM = {
+  high:   'var(--red-dim)',
+  medium: 'var(--orange-dim)',
+  low:    'var(--surface)',
 }
 
 export default function ReviewPage() {
-  const [code, setCode] = useState('')
+  const [code, setCode]         = useState('')
   const [language, setLanguage] = useState('python')
   const [findings, setFindings] = useState(null)
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState(null)
-  const [time, setTime] = useState(null)
+  const [loading, setLoading]   = useState(false)
+  const [error, setError]       = useState(null)
+  const [time, setTime]         = useState(null)
 
-  const API_BASE = import.meta.env.VITE_API_URL || ''
+  const API_BASE   = import.meta.env.VITE_API_URL || ''
   const TIMEOUT_MS = 60000
-
-  const EXT_MAP = {
-    python: 'py', javascript: 'js', typescript: 'ts',
-    java: 'java', go: 'go', rust: 'rs', c: 'c', cpp: 'cpp',
-  }
 
   async function runReview() {
     if (!code.trim()) return
@@ -49,7 +53,7 @@ export default function ReviewPage() {
     setTime(null)
 
     const controller = new AbortController()
-    const timeoutId = setTimeout(() => controller.abort(), TIMEOUT_MS)
+    const tid = setTimeout(() => controller.abort(), TIMEOUT_MS)
 
     try {
       const resp = await fetch(`${API_BASE}/api/review-snippet`, {
@@ -65,10 +69,7 @@ export default function ReviewPage() {
 
       if (!resp.ok) {
         let detail = `server error (${resp.status})`
-        try {
-          const err = await resp.json()
-          detail = err.detail || detail
-        } catch (_) { /* empty body — use status fallback */ }
+        try { const e = await resp.json(); detail = e.detail || detail } catch (_) {}
         throw new Error(detail)
       }
 
@@ -77,14 +78,14 @@ export default function ReviewPage() {
       setTime(data.time_seconds)
     } catch (err) {
       if (err.name === 'AbortError') {
-        setError('Request timed out — the backend may be waking up from a cold start. Wait 30 seconds and try again.')
+        setError('Request timed out — the backend may be cold-starting. Wait 30s and retry.')
       } else if (err.message.includes('Failed to fetch') || err.message.includes('NetworkError')) {
-        setError('Could not reach the backend — it may be starting up. Wait 30 seconds and try again.')
+        setError('Cannot reach backend — it may be starting up. Wait 30s and retry.')
       } else {
         setError(err.message)
       }
     } finally {
-      clearTimeout(timeoutId)
+      clearTimeout(tid)
       setLoading(false)
     }
   }
@@ -96,138 +97,338 @@ export default function ReviewPage() {
     setError(null)
   }
 
+  const lineCount = code ? code.split('\n').length : 0
+
   return (
-    <div className="space-y-6" style={{ animation: 'fadeIn .3s ease-out' }}>
-      {/* header */}
-      <div className="text-center py-4">
-        <h2 className="text-2xl font-bold tracking-tight mb-2 font-display">
-          Code Review
-        </h2>
-        <p className="text-zinc-500 text-sm max-w-md mx-auto">
-          Paste code below. CodeSentry will scan for bugs, security issues,
-          and performance problems using AI analysis.
+    <div style={{ animation: 'fadeUp 0.35s ease-out both' }}>
+
+      {/* ── hero ── */}
+      <div style={{ paddingBottom: '36px', borderBottom: '1px solid var(--border)', marginBottom: '32px' }}>
+        <div style={{
+          fontFamily: 'IBM Plex Mono, monospace',
+          fontSize: '10px',
+          fontWeight: 500,
+          letterSpacing: '0.2em',
+          color: 'var(--amber)',
+          marginBottom: '12px',
+          animation: 'fadeUp 0.3s ease-out both',
+        }}>
+          CODE SCANNER // v0.2.0
+        </div>
+        <h1 style={{
+          fontFamily: 'Syne, sans-serif',
+          fontWeight: 900,
+          fontSize: 'clamp(36px, 6vw, 60px)',
+          lineHeight: 0.95,
+          letterSpacing: '-0.03em',
+          color: 'var(--text)',
+          marginBottom: '16px',
+          animation: 'fadeUp 0.35s ease-out both',
+          animationDelay: '0.05s',
+        }}>
+          SCAN YOUR<br />CODE.
+        </h1>
+        <p style={{
+          fontFamily: 'IBM Plex Sans, sans-serif',
+          fontWeight: 300,
+          fontSize: '14px',
+          lineHeight: 1.7,
+          color: 'var(--text-2)',
+          maxWidth: '420px',
+          animation: 'fadeUp 0.35s ease-out both',
+          animationDelay: '0.1s',
+        }}>
+          Paste any snippet. The ML classifier scores bug risk in 2ms,
+          then Claude reviews only the high-risk parts.
         </p>
       </div>
 
-      {/* editor */}
-      <div className="relative">
-        <div className="flex items-center justify-between mb-2">
-          <div className="flex items-center gap-2">
-            <select value={language} onChange={e => setLanguage(e.target.value)}
-              className="bg-zinc-900 border border-zinc-800 rounded-lg px-3 py-1.5
-                text-xs font-mono text-zinc-400 focus:outline-none focus:border-zinc-600">
-              {LANGUAGES.map(l => <option key={l} value={l}>{l}</option>)}
-            </select>
-            <button onClick={loadSample}
-              className="text-zinc-600 font-mono text-xs hover:text-zinc-400 transition-colors">
-              load sample
-            </button>
-          </div>
-          <span className="text-zinc-700 font-mono text-xs">
-            {code.split('\n').length} lines
-          </span>
-        </div>
+      {/* ── editor ── */}
+      <div style={{ marginBottom: '12px', animation: 'fadeUp 0.35s ease-out both', animationDelay: '0.15s' }}>
+        <div className="editor-wrap">
+          {/* editor top bar */}
+          <div className="editor-bar">
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+              {/* terminal dots */}
+              <div style={{ display: 'flex', gap: '5px' }}>
+                <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: 'var(--border-2)' }} />
+                <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: 'var(--border-2)' }} />
+                <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: 'var(--border-2)' }} />
+              </div>
+              {/* language selector */}
+              <select
+                value={language}
+                onChange={e => setLanguage(e.target.value)}
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  outline: 'none',
+                  fontFamily: 'IBM Plex Mono, monospace',
+                  fontSize: '11px',
+                  fontWeight: 500,
+                  color: 'var(--text-2)',
+                  cursor: 'pointer',
+                  letterSpacing: '0.05em',
+                }}
+              >
+                {LANGUAGES.map(l => <option key={l} value={l} style={{ background: '#111' }}>{l}</option>)}
+              </select>
+              <span style={{
+                fontFamily: 'IBM Plex Mono, monospace',
+                fontSize: '11px',
+                color: 'var(--text-3)',
+              }}>
+                snippet.{EXT_MAP[language] || language}
+              </span>
+            </div>
 
-        <textarea
-          value={code}
-          onChange={e => { setCode(e.target.value); setFindings(null) }}
-          placeholder="// paste your code here..."
-          rows={14}
-          spellCheck={false}
-          className="w-full px-4 py-4 rounded-xl bg-zinc-950 border border-zinc-800
-            text-green-300/90 text-sm font-mono leading-relaxed resize-y
-            placeholder-zinc-700 focus:outline-none focus:border-green-500/30
-            transition-colors"
-          style={{ tabSize: 2 }}
-        />
+            <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+              {lineCount > 0 && (
+                <span style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: '10px', color: 'var(--text-3)' }}>
+                  {lineCount} {lineCount === 1 ? 'line' : 'lines'}
+                </span>
+              )}
+              <button
+                onClick={loadSample}
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  fontFamily: 'IBM Plex Mono, monospace',
+                  fontSize: '10px',
+                  letterSpacing: '0.08em',
+                  color: 'var(--text-3)',
+                  cursor: 'pointer',
+                  transition: 'color 0.15s ease',
+                  textTransform: 'uppercase',
+                }}
+                onMouseEnter={e => e.currentTarget.style.color = 'var(--amber)'}
+                onMouseLeave={e => e.currentTarget.style.color = 'var(--text-3)'}
+              >
+                load sample ↓
+              </button>
+            </div>
+          </div>
+
+          {/* textarea */}
+          <textarea
+            className="editor-textarea"
+            value={code}
+            onChange={e => { setCode(e.target.value); setFindings(null) }}
+            placeholder="// paste code here..."
+            rows={14}
+            spellCheck={false}
+          />
+        </div>
       </div>
 
-      {/* scan button */}
-      <button onClick={runReview} disabled={!code.trim() || loading}
-        className={`w-full py-4 rounded-xl font-semibold text-sm tracking-wider
-          uppercase font-display border transition-all duration-300
-          ${code.trim() && !loading
-            ? 'border-green-500/40 text-green-400 hover:bg-green-500/10 active:scale-[0.99]'
-            : 'border-zinc-800 text-zinc-600 cursor-not-allowed'}`}>
-        {loading ? (
-          <span className="flex items-center justify-center gap-2">
-            <span className="w-3 h-3 border-2 border-green-500/40 border-t-green-400
-              rounded-full animate-spin" />
-            Scanning...
-          </span>
-        ) : (
-          <span className="flex items-center justify-center gap-2">
-            <span className="font-mono">{'>'}</span> Scan Code
-          </span>
-        )}
-      </button>
+      {/* ── scan button ── */}
+      <div style={{ marginBottom: '24px', animation: 'fadeUp 0.35s ease-out both', animationDelay: '0.2s' }}>
+        <button
+          onClick={runReview}
+          disabled={!code.trim() || loading}
+          className={`btn-scan${loading ? ' loading' : ''}`}
+        >
+          {loading ? (
+            <>
+              <span style={{
+                width: '12px',
+                height: '12px',
+                border: '2px solid var(--text-3)',
+                borderTopColor: 'var(--amber)',
+                borderRadius: '50%',
+                animation: 'spin 0.7s linear infinite',
+                flexShrink: 0,
+              }} />
+              SCANNING...
+            </>
+          ) : (
+            <>
+              <span style={{ fontSize: '14px' }}>▸</span>
+              SCAN CODE
+            </>
+          )}
+        </button>
+      </div>
 
+      {/* ── error ── */}
       {error && (
-        <div className="border border-red-500/20 bg-red-500/5 rounded-xl px-5 py-3
-          text-red-400 font-mono text-sm text-center">{error}</div>
+        <div style={{
+          border: '1px solid var(--red)',
+          background: 'var(--red-dim)',
+          padding: '12px 16px',
+          marginBottom: '24px',
+          fontFamily: 'IBM Plex Mono, monospace',
+          fontSize: '12px',
+          color: 'var(--red)',
+          animation: 'fadeUp 0.25s ease-out both',
+        }}>
+          ✗ {error}
+        </div>
       )}
 
-      {/* results */}
+      {/* ── results ── */}
       {findings && (
-        <div className="space-y-4" style={{ animation: 'slideUp .4s cubic-bezier(.16,1,.3,1)' }}>
+        <div style={{ animation: 'fadeUp 0.3s ease-out both' }}>
+
           {/* summary bar */}
-          <div className="flex items-center justify-between bg-zinc-900/50 border
-            border-zinc-800/60 rounded-xl px-5 py-3">
-            <div className="flex items-center gap-4">
-              <span className={`font-mono text-sm font-bold
-                ${findings.length === 0 ? 'text-green-400' : 'text-red-400'}`}>
-                {findings.length === 0 ? 'CLEAN' : `${findings.length} ISSUE${findings.length > 1 ? 'S' : ''}`}
+          <div style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            padding: '14px 20px',
+            background: findings.length === 0 ? 'var(--green-dim)' : 'var(--red-dim)',
+            border: `1px solid ${findings.length === 0 ? 'rgba(34,197,94,0.25)' : 'rgba(255,64,64,0.25)'}`,
+            marginBottom: '0',
+            borderBottom: findings.length > 0 ? '1px solid var(--border)' : undefined,
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '20px' }}>
+              <span style={{
+                fontFamily: 'Syne, sans-serif',
+                fontWeight: 800,
+                fontSize: '16px',
+                letterSpacing: '-0.01em',
+                color: findings.length === 0 ? 'var(--green)' : 'var(--red)',
+              }}>
+                {findings.length === 0 ? '✓ CLEAN' : `${findings.length} ISSUE${findings.length !== 1 ? 'S' : ''} FOUND`}
               </span>
               {findings.length > 0 && (
-                <div className="flex gap-3 text-xs font-mono text-zinc-500">
+                <div style={{ display: 'flex', gap: '16px' }}>
                   {['bug', 'security', 'performance', 'style'].map(type => {
                     const count = findings.filter(f => f.type === type).length
-                    return count > 0 ? <span key={type}>{count} {type}</span> : null
+                    return count > 0 ? (
+                      <span key={type} style={{
+                        fontFamily: 'IBM Plex Mono, monospace',
+                        fontSize: '10px',
+                        color: 'var(--text-2)',
+                        letterSpacing: '0.1em',
+                      }}>
+                        {count} {TYPE_SHORT[type] || type.toUpperCase()}
+                      </span>
+                    ) : null
                   })}
                 </div>
               )}
             </div>
-            {time && (
-              <span className="text-zinc-600 font-mono text-xs">{time}s</span>
+            {time != null && (
+              <span style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: '10px', color: 'var(--text-3)' }}>
+                {time}s
+              </span>
             )}
           </div>
 
-          {/* findings */}
+          {/* findings list */}
           {findings.length === 0 ? (
-            <div className="text-center py-8">
-              <div className="text-3xl mb-2 opacity-30">&#10003;</div>
-              <p className="text-zinc-500 font-mono text-sm">no issues found</p>
+            <div style={{
+              textAlign: 'center',
+              padding: '48px 24px',
+              border: '1px solid rgba(34,197,94,0.15)',
+              borderTop: 'none',
+            }}>
+              <div style={{
+                fontFamily: 'Syne, sans-serif',
+                fontWeight: 900,
+                fontSize: '48px',
+                color: 'var(--green)',
+                opacity: 0.15,
+                lineHeight: 1,
+                marginBottom: '12px',
+              }}>✓</div>
+              <p style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: '12px', color: 'var(--text-3)', letterSpacing: '0.1em' }}>
+                NO ISSUES DETECTED
+              </p>
             </div>
           ) : (
-            <div className="space-y-3">
+            <div style={{ border: '1px solid var(--border)', borderTop: 'none' }}>
               {findings.map((f, i) => {
-                const style = SEVERITY_STYLES[f.severity] || SEVERITY_STYLES.low
+                const sevColor = SEV_COLOR[f.severity] || SEV_COLOR.low
+                const sevDim   = SEV_DIM[f.severity]   || SEV_DIM.low
                 return (
-                  <div key={i} className={`${style.bg} border ${style.border} rounded-xl p-4`}
-                    style={{ animation: `slideUp ${0.3 + i * 0.1}s cubic-bezier(.16,1,.3,1)` }}>
-                    <div className="flex items-start gap-3">
-                      <div className={`w-2 h-2 rounded-full mt-1.5 shrink-0 ${style.dot}`} />
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2 mb-1.5">
-                          <span className={`font-mono text-xs font-bold ${style.text}`}>
-                            {TYPE_LABELS[f.type] || f.type.toUpperCase()}
-                          </span>
-                          <span className="text-zinc-600 font-mono text-xs">
-                            {f.severity.toUpperCase()}
-                          </span>
-                          {f.line > 0 && (
-                            <span className="text-zinc-700 font-mono text-xs">
-                              line {f.line}
-                            </span>
-                          )}
+                  <div
+                    key={i}
+                    style={{
+                      display: 'grid',
+                      gridTemplateColumns: 'auto auto auto 1fr',
+                      gap: '0 20px',
+                      alignItems: 'start',
+                      padding: '16px 20px',
+                      borderBottom: i < findings.length - 1 ? '1px solid var(--border)' : 'none',
+                      borderLeft: `3px solid ${sevColor}`,
+                      background: 'var(--surface)',
+                      transition: 'background 0.1s ease',
+                      animation: 'fadeUp 0.3s ease-out both',
+                      animationDelay: `${i * 0.06}s`,
+                    }}
+                    onMouseEnter={e => e.currentTarget.style.background = 'var(--surface-2)'}
+                    onMouseLeave={e => e.currentTarget.style.background = 'var(--surface)'}
+                  >
+                    {/* type badge */}
+                    <span style={{
+                      fontFamily: 'IBM Plex Mono, monospace',
+                      fontSize: '10px',
+                      fontWeight: 500,
+                      letterSpacing: '0.1em',
+                      color: sevColor,
+                      background: sevDim,
+                      padding: '3px 7px',
+                      border: `1px solid ${sevColor}`,
+                      whiteSpace: 'nowrap',
+                      lineHeight: 1.4,
+                    }}>
+                      {TYPE_SHORT[f.type] || f.type.toUpperCase()}
+                    </span>
+
+                    {/* severity */}
+                    <span style={{
+                      fontFamily: 'IBM Plex Mono, monospace',
+                      fontSize: '10px',
+                      letterSpacing: '0.08em',
+                      color: 'var(--text-3)',
+                      whiteSpace: 'nowrap',
+                      paddingTop: '3px',
+                    }}>
+                      {f.severity.toUpperCase()}
+                    </span>
+
+                    {/* line */}
+                    <span style={{
+                      fontFamily: 'IBM Plex Mono, monospace',
+                      fontSize: '10px',
+                      color: 'var(--text-3)',
+                      whiteSpace: 'nowrap',
+                      paddingTop: '3px',
+                    }}>
+                      {f.line > 0 ? `L.${f.line}` : '—'}
+                    </span>
+
+                    {/* message + code snippet */}
+                    <div style={{ minWidth: 0 }}>
+                      <p style={{
+                        fontFamily: 'IBM Plex Sans, sans-serif',
+                        fontWeight: 300,
+                        fontSize: '13px',
+                        lineHeight: 1.6,
+                        color: 'var(--text)',
+                        marginBottom: f.line_content ? '10px' : 0,
+                      }}>
+                        {f.message}
+                      </p>
+                      {f.line_content && (
+                        <div style={{
+                          background: '#050505',
+                          border: '1px solid var(--border)',
+                          borderLeft: `2px solid ${sevColor}`,
+                          padding: '8px 12px',
+                        }}>
+                          <code style={{
+                            fontFamily: 'IBM Plex Mono, monospace',
+                            fontSize: '11px',
+                            color: sevColor,
+                            opacity: 0.9,
+                          }}>
+                            {f.line_content}
+                          </code>
                         </div>
-                        <p className="text-zinc-300 text-sm leading-relaxed">{f.message}</p>
-                        {f.line_content && (
-                          <div className="mt-2 px-3 py-2 rounded-lg bg-black/30 border border-zinc-800/50">
-                            <code className="text-xs font-mono text-red-300/80">{f.line_content}</code>
-                          </div>
-                        )}
-                      </div>
+                      )}
                     </div>
                   </div>
                 )
@@ -237,11 +438,33 @@ export default function ReviewPage() {
         </div>
       )}
 
-      {/* empty state */}
+      {/* ── empty state ── */}
       {!findings && !loading && !code.trim() && (
-        <div className="text-center py-12" style={{ animation: 'fadeIn .5s ease-out' }}>
-          <div className="font-mono text-3xl mb-3 opacity-15">{'{ }'}</div>
-          <p className="text-zinc-600 font-mono text-sm">paste code or load a sample to get started</p>
+        <div style={{
+          textAlign: 'center',
+          padding: '64px 24px',
+          animation: 'fadeIn 0.5s ease-out both',
+          animationDelay: '0.25s',
+        }}>
+          <div style={{
+            fontFamily: 'IBM Plex Mono, monospace',
+            fontSize: '48px',
+            color: 'var(--border-2)',
+            lineHeight: 1,
+            marginBottom: '16px',
+            letterSpacing: '-0.05em',
+          }}>
+            { '{ }' }
+          </div>
+          <p style={{
+            fontFamily: 'IBM Plex Mono, monospace',
+            fontSize: '11px',
+            letterSpacing: '0.12em',
+            color: 'var(--text-3)',
+            textTransform: 'uppercase',
+          }}>
+            Paste code or load a sample to begin
+          </p>
         </div>
       )}
     </div>

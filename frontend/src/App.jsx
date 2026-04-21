@@ -4,81 +4,131 @@ import HowItWorksPage from './components/HowItWorksPage'
 import AboutPage from './components/AboutPage'
 
 const TABS = [
-  { id: 'review', label: 'Review', icon: '>' },
-  { id: 'how', label: 'How It Works', icon: '?' },
-  { id: 'about', label: 'About', icon: '#' },
+  { id: 'review',  label: 'Review'       },
+  { id: 'how',     label: 'How It Works' },
+  { id: 'about',   label: 'About'        },
 ]
 
 export default function App() {
   const [tab, setTab] = useState('review')
 
   return (
-    <div className="relative min-h-screen bg-[#0a0a0a] text-white font-body">
-      {/* subtle grid background */}
-      <div className="fixed inset-0 pointer-events-none opacity-[0.03]"
+    <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
+      {/* ── header ── */}
+      <header style={{ borderBottom: '1px solid var(--border)', animation: 'fadeIn 0.3s ease-out both' }}>
+        <div style={{ maxWidth: '1000px', margin: '0 auto', padding: '0 24px' }}>
+          {/* wordmark row */}
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingTop: '18px', paddingBottom: '14px' }}>
+            <button
+              onClick={() => setTab('review')}
+              style={{
+                background: 'none',
+                border: 'none',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '10px',
+                padding: 0,
+              }}
+            >
+              {/* mark */}
+              <span style={{
+                width: '28px',
+                height: '28px',
+                border: '1px solid var(--amber)',
+                background: 'var(--amber-dim)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                fontFamily: 'IBM Plex Mono, monospace',
+                fontSize: '11px',
+                fontWeight: 500,
+                color: 'var(--amber)',
+                flexShrink: 0,
+              }}>
+                CS
+              </span>
+              <span style={{
+                fontFamily: 'Syne, sans-serif',
+                fontWeight: 900,
+                fontSize: '17px',
+                letterSpacing: '-0.02em',
+                color: 'var(--text)',
+              }}>
+                CODESENTRY
+              </span>
+            </button>
+
+            <a
+              href="https://github.com/amrithpusala/CodeSentry"
+              target="_blank"
+              rel="noopener noreferrer"
+              style={{
+                fontFamily: 'IBM Plex Mono, monospace',
+                fontSize: '11px',
+                color: 'var(--text-3)',
+                textDecoration: 'none',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '4px',
+                transition: 'color 0.15s ease',
+              }}
+              onMouseEnter={e => e.currentTarget.style.color = 'var(--text-2)'}
+              onMouseLeave={e => e.currentTarget.style.color = 'var(--text-3)'}
+            >
+              github ↗
+            </a>
+          </div>
+
+          {/* tab nav */}
+          <nav style={{ display: 'flex', gap: 0, marginBottom: '-1px' }}>
+            {TABS.map(t => (
+              <button
+                key={t.id}
+                onClick={() => setTab(t.id)}
+                className={`nav-tab${tab === t.id ? ' active' : ''}`}
+              >
+                {t.label}
+              </button>
+            ))}
+          </nav>
+        </div>
+      </header>
+
+      {/* ── main content ── */}
+      <main
+        key={tab}
         style={{
-          backgroundImage: 'linear-gradient(rgba(34,197,94,0.3) 1px, transparent 1px), linear-gradient(90deg, rgba(34,197,94,0.3) 1px, transparent 1px)',
-          backgroundSize: '60px 60px',
-        }} />
+          flex: 1,
+          maxWidth: '1000px',
+          width: '100%',
+          margin: '0 auto',
+          padding: '40px 24px 64px',
+        }}
+      >
+        {tab === 'review' && <ReviewPage />}
+        {tab === 'how'    && <HowItWorksPage />}
+        {tab === 'about'  && <AboutPage />}
+      </main>
 
-      <div className="relative z-10">
-        {/* header */}
-        <header className="border-b border-zinc-800/80">
-          <div className="max-w-4xl mx-auto px-4 sm:px-6 pt-5 pb-0">
-            <div className="flex items-center justify-between mb-4">
-              <div className="flex items-center gap-3">
-                <div className="w-8 h-8 rounded-lg bg-green-500/10 border border-green-500/30
-                  flex items-center justify-center font-mono text-green-400 text-sm font-bold">
-                  {'{}'}
-                </div>
-                <h1 className="text-xl font-bold tracking-tight cursor-pointer font-display"
-                  onClick={() => setTab('review')}>
-                  CodeSentry
-                </h1>
-              </div>
-              <a href="https://github.com/amrithpusala/CodeSentry"
-                target="_blank" rel="noopener noreferrer"
-                className="text-zinc-500 font-mono text-xs hover:text-zinc-300 transition-colors">
-                github
-              </a>
-            </div>
-
-            <div className="flex gap-0 -mb-px">
-              {TABS.map(t => (
-                <button key={t.id} onClick={() => setTab(t.id)}
-                  className={`relative px-4 py-3 text-sm font-medium transition-all
-                    duration-300 font-display whitespace-nowrap
-                    ${tab === t.id ? 'text-green-400' : 'text-zinc-500 hover:text-zinc-300'}`}>
-                  <span className="flex items-center gap-2">
-                    <span className={`font-mono text-xs ${tab === t.id ? 'opacity-100' : 'opacity-40'}`}>
-                      {t.icon}
-                    </span>
-                    {t.label}
-                  </span>
-                  {tab === t.id && (
-                    <div className="absolute bottom-0 left-2 right-2 h-[2px] bg-green-400 rounded-full" />
-                  )}
-                </button>
-              ))}
-            </div>
-          </div>
-        </header>
-
-        {/* content */}
-        <main className="max-w-4xl mx-auto px-4 sm:px-6 py-8" key={tab}>
-          {tab === 'review' && <ReviewPage />}
-          {tab === 'how' && <HowItWorksPage />}
-          {tab === 'about' && <AboutPage />}
-        </main>
-
-        {/* footer */}
-        <footer className="border-t border-zinc-900/50 mt-16">
-          <div className="max-w-4xl mx-auto px-4 sm:px-6 py-5 flex items-center justify-between">
-            <span className="text-zinc-600 font-mono text-xs">pytorch + claude + fastapi</span>
-            <span className="text-zinc-600 font-mono text-xs">amrith pusala</span>
-          </div>
-        </footer>
-      </div>
+      {/* ── footer ── */}
+      <footer style={{ borderTop: '1px solid var(--border)' }}>
+        <div style={{
+          maxWidth: '1000px',
+          margin: '0 auto',
+          padding: '16px 24px',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+        }}>
+          <span style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: '10px', color: 'var(--text-3)', letterSpacing: '0.1em' }}>
+            PYTORCH + CLAUDE + FASTAPI
+          </span>
+          <span style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: '10px', color: 'var(--text-3)', letterSpacing: '0.1em' }}>
+            AMRITH PUSALA
+          </span>
+        </div>
+      </footer>
     </div>
   )
 }
