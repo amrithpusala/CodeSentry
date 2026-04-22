@@ -396,6 +396,10 @@ async def review_snippet(req: SnippetReviewRequest, request: Request):
 
   from app.diff_parser import DiffChunk
   from app.reviewer import review_chunks, format_comment
+  from app.feature_extractor import (
+    extract_features, SECRET_PATTERNS, EVAL_PATTERNS,
+    SHELL_PATTERNS, SQL_PATTERNS, SQL_FSTRING,
+  )
 
   # wrap the snippet as a fake diff chunk
   lines = req.code.split('\n')
@@ -409,6 +413,40 @@ async def review_snippet(req: SnippetReviewRequest, request: Request):
 
   start = time.time()
   findings, _ = await review_chunks({req.filename: [chunk]})
+
+  # LLM review skips chunks with <3 lines; use feature extractor as fallback
+  # so short snippets still get flagged for definite security patterns
+  if not findings and len(lines) < 3:
+    features = extract_features(chunk)
+    _sec_checks = [
+      (features.has_hardcoded_secret, [SECRET_PATTERNS],
+       'Hardcoded credential: a password, token, or API key is assigned a string literal.'),
+      (features.has_eval_exec, [EVAL_PATTERNS],
+       'eval/exec detected — executes arbitrary code; never call with untrusted input.'),
+      (features.has_shell_command, [SHELL_PATTERNS],
+       'Shell command execution — potential command injection if arguments are not sanitized.'),
+      (features.has_sql_string, [SQL_PATTERNS, SQL_FSTRING],
+       'SQL string construction — use parameterized queries to prevent SQL injection.'),
+    ]
+    for flag, patterns, message in _sec_checks:
+      if not flag:
+        continue
+      line_num, line_content = 1, ''
+      for i, ln in enumerate(lines, start=1):
+        if any(p.search(ln) for p in patterns):
+          line_num, line_content = i, ln
+          break
+      findings.append({
+        'file_path': req.filename,
+        'type': 'security',
+        'severity': 'high',
+        'message': message,
+        'line': line_num,
+        'line_content': line_content,
+        'suggestion': '',
+        'confidence': 1.0,
+      })
+
   elapsed = time.time() - start
 
   return {
