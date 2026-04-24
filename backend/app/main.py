@@ -1,9 +1,12 @@
 # main.py — fastapi app with github webhook handler
 # run with: uvicorn app.main:app --reload --port 8000
 
+import json as _json
 import os
+import sys
 import time
 from collections import defaultdict
+from datetime import datetime
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
@@ -20,8 +23,10 @@ from app import risk_classifier
 
 # --- rate limiter ---
 RATE_LIMIT_WINDOW = 60
-RATE_LIMIT_MAX = 20
+RATE_LIMIT_MAX = 10
+DAILY_CAP = 50
 _request_log = defaultdict(list)
+_daily_log: dict[str, list[float]] = defaultdict(list)
 
 
 def check_rate_limit(client_ip: str):
@@ -30,8 +35,16 @@ def check_rate_limit(client_ip: str):
     t for t in _request_log[client_ip] if now - t < RATE_LIMIT_WINDOW
   ]
   if len(_request_log[client_ip]) >= RATE_LIMIT_MAX:
-    raise HTTPException(status_code=429, detail='rate limit exceeded')
+    raise HTTPException(status_code=429, detail='rate limit exceeded — max 10 requests per minute')
   _request_log[client_ip].append(now)
+
+
+def check_daily_cap(client_ip: str):
+  now = time.time()
+  _daily_log[client_ip] = [t for t in _daily_log[client_ip] if now - t < 86400]
+  if len(_daily_log[client_ip]) >= DAILY_CAP:
+    raise HTTPException(status_code=429, detail='daily limit exceeded — max 50 reviews per 24 hours')
+  _daily_log[client_ip].append(now)
 
 
 # --- app setup ---
@@ -61,6 +74,30 @@ app.add_middleware(
   allow_methods=['GET', 'POST'],
   allow_headers=['Content-Type'],
 )
+
+
+@app.middleware('http')
+async def log_snippet_requests(request: Request, call_next):
+  if request.url.path != '/api/review-snippet':
+    return await call_next(request)
+
+  body_bytes = await request.body()
+  try:
+    body_data = _json.loads(body_bytes)
+    code_len = len(body_data.get('code', ''))
+  except Exception:
+    code_len = -1
+
+  client_ip = request.client.host if request.client else 'unknown'
+  timestamp = datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%SZ')
+
+  response = await call_next(request)
+
+  print(
+    f'[review-snippet] {timestamp} ip={client_ip} code_len={code_len} status={response.status_code}',
+    flush=True,
+  )
+  return response
 
 
 @app.on_event('startup')
@@ -379,12 +416,9 @@ async def run_review(owner, repo, pr_number, commit_sha):
 # --- snippet review (for testing and frontend) ---
 
 class SnippetReviewRequest(BaseModel):
-  code: str = Field(..., max_length=10000,
-                    description='code to review')
-  language: str = Field(default='python',
-                        description='programming language')
-  filename: str = Field(default='snippet.py',
-                        description='filename for context')
+  code: str = Field(..., description='code to review')
+  language: str = Field(default='python', description='programming language')
+  filename: str = Field(default='snippet.py', description='filename for context')
 
 
 @app.post('/api/review-snippet')
@@ -392,10 +426,18 @@ async def review_snippet(req: SnippetReviewRequest, request: Request):
   """review a code snippet directly without a GitHub PR.
   useful for testing the review engine or building a frontend.
   """
-  check_rate_limit(request.client.host)
+  if len(req.code) > 20000:
+    raise HTTPException(status_code=413, detail='code exceeds 20,000 character limit')
+  client_ip = request.client.host
+  check_rate_limit(client_ip)
+  check_daily_cap(client_ip)
 
   from app.diff_parser import DiffChunk
   from app.reviewer import review_chunks, format_comment
+  from app.feature_extractor import (
+    extract_features, SECRET_PATTERNS, EVAL_PATTERNS,
+    SHELL_PATTERNS, SQL_PATTERNS, SQL_FSTRING,
+  )
 
   # wrap the snippet as a fake diff chunk
   lines = req.code.split('\n')
@@ -409,6 +451,40 @@ async def review_snippet(req: SnippetReviewRequest, request: Request):
 
   start = time.time()
   findings, _ = await review_chunks({req.filename: [chunk]})
+
+  # LLM review skips chunks with <3 lines; use feature extractor as fallback
+  # so short snippets still get flagged for definite security patterns
+  if not findings and len(lines) < 3:
+    features = extract_features(chunk)
+    _sec_checks = [
+      (features.has_hardcoded_secret, [SECRET_PATTERNS],
+       'Hardcoded credential: a password, token, or API key is assigned a string literal.'),
+      (features.has_eval_exec, [EVAL_PATTERNS],
+       'eval/exec detected — executes arbitrary code; never call with untrusted input.'),
+      (features.has_shell_command, [SHELL_PATTERNS],
+       'Shell command execution — potential command injection if arguments are not sanitized.'),
+      (features.has_sql_string, [SQL_PATTERNS, SQL_FSTRING],
+       'SQL string construction — use parameterized queries to prevent SQL injection.'),
+    ]
+    for flag, patterns, message in _sec_checks:
+      if not flag:
+        continue
+      line_num, line_content = 1, ''
+      for i, ln in enumerate(lines, start=1):
+        if any(p.search(ln) for p in patterns):
+          line_num, line_content = i, ln
+          break
+      findings.append({
+        'file_path': req.filename,
+        'type': 'security',
+        'severity': 'high',
+        'message': message,
+        'line': line_num,
+        'line_content': line_content,
+        'suggestion': '',
+        'confidence': 1.0,
+      })
+
   elapsed = time.time() - start
 
   return {

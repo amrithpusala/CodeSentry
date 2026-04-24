@@ -250,6 +250,19 @@ export default function ReviewPage() {
         </button>
       </div>
 
+      {/* ── rate limit note ── */}
+      <div style={{
+        fontFamily: 'IBM Plex Mono, monospace',
+        fontSize: '10px',
+        letterSpacing: '0.08em',
+        color: 'var(--text-3)',
+        marginBottom: '24px',
+        animation: 'fadeUp 0.35s ease-out both',
+        animationDelay: '0.22s',
+      }}>
+        Rate limited to 10 scans per minute, 50 per day.
+      </div>
+
       {/* ── error ── */}
       {error && (
         <div style={{
