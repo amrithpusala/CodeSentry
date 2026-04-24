@@ -55,3 +55,4 @@ def read_large_file(path):
         for line in f:
             lines.append(line.strip())
     return lines
+
